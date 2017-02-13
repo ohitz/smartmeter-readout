@@ -1,0 +1,68 @@
+=head1 NAME
+
+smartmeter-readout - Read data from an IEC 62056-21 smart meter
+
+=head1 SYNOPSIS
+
+smartmeter-readout [OPTIONS] DEVICE
+
+=head1 DESCRIPTION
+
+B<smartmeter-readout> communicates with the smart meter connected to
+the serial port C<DEVICE> and reads out a full data telegram.
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<-h|--help>
+
+Show the help message.
+
+=item B<-d|--debug>
+
+Print debugging output.
+
+=item B<-r|--register REGISTER[/LABEL[/FACTOR]]>
+
+By default, all registers read from the smart meter are shown. When
+this option is used, only the specified registers are shown.
+
+When B<LABEL> is specified, an optional label is printed along with
+the value.
+
+B<FACTOR> specifies an optional multiplication factor.
+
+The option may be specified multiple times.
+
+=item B<-c|--continuous>
+
+Enable continuous reading mode. Reads telegrams until the program is
+stopped using CTRL-C.
+
+=item B<-w|--wait SECS> 
+
+Time to wait between two readouts (when running in continuous reading
+mode).
+
+=back
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2017 Oliver Hitz
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or (at
+your option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
+USA.
+

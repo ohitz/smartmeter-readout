@@ -1,0 +1,430 @@
+#!/usr/bin/perl
+
+use Pod::Usage;
+use Getopt::Long;
+use Device::SerialPort;
+use Time::HiRes qw(time sleep);
+use strict;
+
+$| = 1;
+
+my $opt_device;
+my @opt_register;
+my $opt_debug = 0;
+my $opt_continuous = 0;
+my $opt_wait = 5;
+my $opt_help;
+
+if (!GetOptions( "h|help" => \$opt_help,
+                 "d|debug" => \$opt_debug,
+                 "r|register=s" => \@opt_register,
+                 "c|continuous" => \$opt_continuous,
+                 "w|wait=i" => \$opt_wait )) {
+  usage();
+}
+
+if ($opt_help) {
+  help();
+}
+
+if ($#ARGV < 0) {
+  usage();
+}
+
+$opt_device = shift @ARGV;
+
+my $meter;
+
+# Intercept CTRL-C so we can shutdown gracefully (otherwise, the
+# lockfile created by Device::SerialPort is not deleted.
+$SIG{'INT'} = sub {
+  if ($meter) {
+    undef $meter;
+  }
+  exit 0;
+};
+
+$meter = Meter->new($opt_device, debug => $opt_debug);
+if (!$meter) {
+  printf STDERR "Unable to open device $opt_device: $!\n";
+  exit 1;
+}
+
+do {
+  my $start = time();
+
+  my $d = $meter->get_telegram();
+  if (!$d) {
+    printf STDERR "Unable to get values, %s.\n", $meter->{error};
+    exit 1;
+  }
+  
+  if (@opt_register) {
+    foreach my $rspec (@opt_register) {
+      if ($rspec =~ /([^\/]*)\/([^\/]*)\/(.*)/) {
+        my $reg = $1;
+        my $label = $2;
+        my $factor = $3;
+        printf "%s=%f\n", $label, $factor * $d->{data}->{$reg};
+      } elsif ($rspec =~ /([^\/]*)\/([^\/]*)/) {
+        my $reg = $1;
+        my $label = $2;
+        printf "%s=%f\n", $label, $d->{data}->{$reg};
+      } elsif ($rspec =~ /([^\/]*)/) {
+        my $reg = $1;
+        printf "%s=%f\n", $reg, $d->{data}->{$reg};
+      }
+    }
+  } else {
+    foreach my $k (sort keys %{ $d->{data} }) {
+      printf "%s=%s\n", $k, $d->{data}->{$k};
+    }
+  }
+
+  if ($opt_continuous) {
+    my $stop = time();
+
+    if ($start + $opt_wait > $stop) {
+      sleep($opt_wait - $stop + $start);
+    }
+  }
+} while ($opt_continuous);
+
+exit 0;
+
+sub help
+{
+  pod2usage(0);
+}
+
+sub usage
+{
+  pod2usage(1);
+}
+
+package Meter;
+
+use Time::HiRes qw(time);
+
+sub new {
+  my $class = shift;
+  my $device = shift;
+  my %flags = @_;
+
+  my $self = bless {}, $class;
+  $self->{device} = $device;
+
+  if ($flags{debug}) {
+    $self->{debug} = 1;
+  }
+ 
+  # Construct lockfile name.
+  $self->{lockfile} = $device;
+  $self->{lockfile} =~ s/\/dev\///;
+  $self->{lockfile} =~ s/\//_/g;
+  $self->{lockfile} = "/var/lock/LCK..".$self->{lockfile};
+
+  $self->{baudrates} = {
+    0 => 300,
+    1 => 600,
+    2 => 1200,
+    3 => 2400,
+    4 => 4800,
+    5 => 9600,
+    6 => 19200,
+  };
+
+  $self->debug("Opening %s\n", $self->{device});
+  
+  # When using the lockfile, Device::SerialPort has a very annoying
+  # two second delay...
+  $self->{port} = Device::SerialPort->new($self->{device}, 0, $self->{lockfile});
+  if (!$self->{port}) {
+    return undef;
+  }
+  
+  $self->{port}->baudrate(300);
+  $self->{port}->databits(7);
+  $self->{port}->stopbits(1);
+  $self->{port}->parity("even");
+  $self->{port}->handshake("none");
+
+  $self->{port}->read_char_time(0);
+  $self->{port}->read_const_time(100);
+
+  # Read until the meter doesn't send us anything (i.e. the read times
+  # out). This makes sure we are in sync with the meter.
+  my $cnt;
+  my $data;
+  do {
+    ($cnt, $data) = $self->{port}->read(1);
+  } until ($cnt == 0);
+
+  # Flush everything.
+  $self->{port}->purge_all();
+
+  $self->{recv_buffer} = "";
+  
+  return $self;
+}
+
+sub debug()
+{
+  my $self = shift;
+  my $format = shift;
+  my @args = shift;
+
+  if ($self->{debug}) {
+    printf "DEBUG: $format", @args;
+  }
+}
+
+# clean string: replace unprintable characters with '.'.
+sub cs()
+{
+  my $self = shift;
+  my $s = shift;
+  $s =~ s/[^[:print:]]/./g;
+  return $s;
+}
+
+sub get_telegram()
+{
+  my $self = shift;
+  my $data = {};
+
+  my $status;
+  
+  my $retry = 3;
+  while ($retry > 0) {
+    $self->debug("Sending sign-on\n");
+    $self->send("/?!\r\n");
+
+    $self->debug("Reading identification\n");
+    ($status, $data->{raw_identification}) = $self->recv(qr/\r\n$/);
+    if ($status) {
+      last;
+    } else {
+      if ($retry == 0) {
+        $self->{error} = "Timeout while reading identification.";
+        return undef;
+      }
+      print "Retrying...\n";
+      $retry--;
+    }
+  }
+    
+  $self->debug("Identification received: `%s'\n", $self->cs($data->{raw_identification}));
+  if ($data->{raw_identification} !~ /^\/(...)([0-6])(.*)/) {
+    $self->{error} = "No identification message received from meter.";
+    return undef;
+  }
+
+  $data->{vendor} = $1;
+  $data->{br_code} = $2;
+  $data->{id} = $3;
+
+  # If br_code refers to a known baud rate, upgrade to a faster speed.
+  if (defined $self->{baudrates}->{$data->{br_code}}) {
+    my $new_br = $self->{baudrates}->{$data->{br_code}};
+
+    $self->debug("Upgrading to %d bps.\n", $new_br);
+    $self->send("\x060%d0\r\n", $data->{br_code});
+
+    # Wait 300 ms before changing the baud rate.
+    select(undef, undef, undef, 0.3);
+    
+    $self->{port}->baudrate($new_br);
+  } else {
+    $self->debug("Baud rate `%s' not known, staying at 300 bps.\n", $data->{br_code});
+  }
+
+  $self->debug("Receiving telegram.\n");
+
+  my $start = time();
+  
+  # Receive all registers.  
+  $data->{raw_data} = "";
+  while (1) {
+    my $recv;
+
+    ($status, $recv) = $self->recv(qr/(\r\n)|(\x03.)$/);
+    if (!$status) {
+      $self->{error} = "Timeout reading data.";
+      return undef;
+    }
+    $self->debug("Received `%s'.\n", $self->cs($recv));
+    $data->{raw_data} .= $recv;
+
+    if ($data->{raw_data} =~ /^\x02(.*!\r\n\x03)(.)$/ms) {
+      $data->{raw_body} = $1;
+      $data->{raw_checksum} = ord($2);
+      last;
+    }
+  }
+
+  $self->debug("Received telegram in %f secs.\n", time() - $start);
+  
+  # Reset baudrate to 300 bps.
+  $self->{port}->baudrate(300);
+  
+  # Verify checksum.
+  my $c = 0;
+  for (my $i = 0; $i < length($data->{raw_body}); $i++) {
+    $c ^= ord(substr($data->{raw_body}, $i, 1));
+  }
+
+  if ($c != $data->{raw_checksum}) {
+    $self->{error} = "Wrong checksum.";
+    return undef;
+  }
+
+  # Parse line by line.
+  $data->{data} = {};
+  $data->{data_raw} = {};
+  
+  foreach my $line (split /\r\n/, $data->{raw_body}) {
+    if ($line =~ /^(.*)\((.*)\)$/) {
+      my $k = $1;
+      my $v = $2;
+      $data->{data_raw}->{$k} = $v;
+      $k =~ s/^.*:([^.]+\.[^.]+\.[^.]+)\*.*$/$1/;
+      $data->{data}->{$k} = $v;
+    }
+  }
+ 
+  return $data;
+}
+
+sub send()
+{
+  my $self = shift;
+  my $cmd = shift;
+  my (@args) = @_;
+
+  $self->{port}->write(sprintf($cmd, @args));
+  $self->{port}->write_drain();
+}
+
+sub recv()
+{
+  my $self = shift;
+  my $pattern = shift;
+
+  my $recv = "";
+  
+  while ($recv !~ $pattern) {
+    my ($cnt, $data) = $self->getc();
+    # printf "%d %02x\n", $cnt, $data;
+    if ($cnt > 0) {
+      $recv .= $data;
+    } else {
+      $self->debug("Timeout reading data.\n");
+      return (0, $recv);
+    }
+  }
+  
+  return (1, $recv);
+}
+
+sub getc()
+{
+  my $self = shift;
+  my $timeout = shift || 3;
+  
+  # read_const_time is 100, so multiply the timeout by 10.
+  $timeout *= 10;
+
+  if ($self->{recv_buffer} eq "") {
+    while (1) {
+      my ($cnt, $data) = $self->{port}->read(255);
+      if ($cnt > 0) {
+        $self->debug("Read on serial port: `%s'\n", $self->cs($data));
+        $self->{recv_buffer} = $data;
+        last;
+      } else {        
+        $timeout--;
+        if ($timeout == 0) {
+          return (0, 0);
+        }
+      }
+    }
+  }
+
+  my $c = substr($self->{recv_buffer}, 0, 1);
+  $self->{recv_buffer} = substr($self->{recv_buffer}, 1);
+
+  return (1, $c);
+}
+
+__END__
+
+=head1 NAME
+
+smartmeter-readout - Read data from an IEC 62056-21 smart meter
+
+=head1 SYNOPSIS
+
+smartmeter-readout [OPTIONS] DEVICE
+
+=head1 DESCRIPTION
+
+B<smartmeter-readout> communicates with the smart meter connected to
+the serial port C<DEVICE> and reads out a full data telegram.
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<-h|--help>
+
+Show the help message.
+
+=item B<-d|--debug>
+
+Print debugging output.
+
+=item B<-r|--register REGISTER[/LABEL[/FACTOR]]>
+
+By default, all registers read from the smart meter are shown. When
+this option is used, only the specified registers are shown.
+
+When B<LABEL> is specified, an optional label is printed along with
+the value.
+
+B<FACTOR> specifies an optional multiplication factor.
+
+The option may be specified multiple times.
+
+=item B<-c|--continuous>
+
+Enable continuous reading mode. Reads telegrams until the program is
+stopped using CTRL-C.
+
+=item B<-w|--wait SECS> 
+
+Time to wait between two readouts (when running in continuous reading
+mode).
+
+=back
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2017 Oliver Hitz
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or (at
+your option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
+USA.
+
+=cut
