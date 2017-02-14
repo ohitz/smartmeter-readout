@@ -1,4 +1,6 @@
 #!/usr/bin/perl
+#
+# Copyright (C) 2017 Oliver Hitz <oliver@net-track.ch>
 
 use Pod::Usage;
 use Getopt::Long;
@@ -405,6 +407,44 @@ stopped using CTRL-C.
 
 Time to wait between two readouts (when running in continuous reading
 mode).
+
+=back
+
+Registers returned on an Iskraemeco MT174 smart meter:
+
+=over 8
+
+=item * B<0.0.0>: Device address
+
+=item * B<0.2.0>: Firmware version
+
+=item * B<1.8.0>: Positive active energy total (kWh)
+
+=item * B<1.8.1>, B<1.8.2>: Positive active energy in tariff 1 and 2 (kWh)
+
+=item * B<2.8.0>: Negative active energy total (kWh)
+
+=item * B<2.8.1>, B<2.8.2>: Negative active energy in tariff 1 and 2 (kWh)
+
+=item * B<31.7.0>, B<51.7.0>, B<71.7.0>: Instantaneous current in phase L1, L2 and L3 (A)
+
+=item * B<32.7.0>, B<52.7.0>, B<72.7.0>: Instantaneous voltage in phase L1, L2 and L3 (V)
+
+=item * B<33.7.0>, B<53.7.0>, B<73.7.0>: Power factor in phase L1, L2 and L3 (cos phi)
+
+=item * B<36.7.0>, B<56.7.0>, B<76.7.0>: Instantaneous power in phase L1, L2 and L3 (kW)
+
+=item * B<C.1.0>: Meter serial number.
+
+=item * B<C.1.1>: Meter type.
+
+=item * B<C.1.6>: Firmware checksum.
+
+=item * B<C.7.0>: Power outages counter.
+
+=item * B<C.7.1>, B<C.7.2>, B<C.7.3>: Power outages counter on phase L1, L2 and L3.
+
+=item * B<F.F.0>: Fatal error meter status.
 
 =back
 
