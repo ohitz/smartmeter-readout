@@ -410,6 +410,16 @@ mode).
 
 =back
 
+B<smartmeter-readout> was reported to work with the following meters:
+
+=over 8
+
+=item * Iskraemeco MT174
+
+=item * Landis+Gyr E230
+
+=back
+
 Registers returned on an Iskraemeco MT174 smart meter:
 
 =over 8
