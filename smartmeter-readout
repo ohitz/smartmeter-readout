@@ -16,6 +16,7 @@ my $opt_debug = 0;
 my $opt_nolock;
 my $opt_continuous = 0;
 my $opt_wait = 5;
+my $opt_callback;
 my $opt_help;
 
 if (!GetOptions( "h|help" => \$opt_help,
@@ -23,7 +24,8 @@ if (!GetOptions( "h|help" => \$opt_help,
                  "n|nolock" => \$opt_nolock,
                  "r|register=s" => \@opt_register,
                  "c|continuous" => \$opt_continuous,
-                 "w|wait=i" => \$opt_wait )) {
+                 "w|wait=i" => \$opt_wait,
+		 "callback=s" => \$opt_callback)) {
   usage();
 }
 
@@ -62,26 +64,44 @@ do {
     printf STDERR "Unable to get values, %s.\n", $meter->{error};
     exit 1;
   }
-  
+
+  my $output_handle;
+
+  if ($opt_callback) {
+    open($output_handle, "|".$opt_callback);
+  } else {
+    $output_handle = *STDOUT;
+  }
+
   if (@opt_register) {
     foreach my $rspec (@opt_register) {
       if ($rspec =~ /([^\/]*)\/([^\/]*)\/(.*)/) {
         my $reg = $1;
         my $label = $2;
         my $factor = $3;
-        printf "%s=%f\n", $label, $factor * $d->{data}->{$reg};
+        printf $output_handle "%s=%f\n", $label, $factor * $d->{data}->{$reg};
       } elsif ($rspec =~ /([^\/]*)\/([^\/]*)/) {
         my $reg = $1;
         my $label = $2;
-        printf "%s=%f\n", $label, $d->{data}->{$reg};
+        printf $output_handle "%s=%f\n", $label, $d->{data}->{$reg};
       } elsif ($rspec =~ /([^\/]*)/) {
         my $reg = $1;
-        printf "%s=%f\n", $reg, $d->{data}->{$reg};
+        printf $output_handle "%s=%f\n", $reg, $d->{data}->{$reg};
       }
     }
   } else {
     foreach my $k (sort keys %{ $d->{data} }) {
-      printf "%s=%s\n", $k, $d->{data}->{$k};
+      printf $output_handle "%s=%s\n", $k, $d->{data}->{$k};
+    }
+  }
+
+  if ($opt_callback) {
+    close($output_handle);
+    my $status = $?;
+
+    # If the callback doesn't return 0, exit with the same status.
+    if ($status != 0) {
+      exit $status>>8;
     }
   }
 
@@ -418,6 +438,13 @@ mode).
 
 Don't check for lock files (potentially dangerous). This will speed up
 the program by two seconds.
+
+=item B<--callback PROGRAM>
+
+After each telegram is read, the specified B<PROGRAM> is called and
+the output is piped into that program. If the program's exit status is
+different from 0, B<smartmeter-readout> quits with the same status
+(especially relevant when running in continuous mode).
 
 =back
 
