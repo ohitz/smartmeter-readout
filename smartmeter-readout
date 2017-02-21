@@ -13,12 +13,14 @@ $| = 1;
 my $opt_device;
 my @opt_register;
 my $opt_debug = 0;
+my $opt_nolock;
 my $opt_continuous = 0;
 my $opt_wait = 5;
 my $opt_help;
 
 if (!GetOptions( "h|help" => \$opt_help,
                  "d|debug" => \$opt_debug,
+                 "n|nolock" => \$opt_nolock,
                  "r|register=s" => \@opt_register,
                  "c|continuous" => \$opt_continuous,
                  "w|wait=i" => \$opt_wait )) {
@@ -46,7 +48,7 @@ $SIG{'INT'} = sub {
   exit 0;
 };
 
-$meter = Meter->new($opt_device, debug => $opt_debug);
+$meter = Meter->new($opt_device, debug => $opt_debug, nolock => $opt_nolock);
 if (!$meter) {
   printf STDERR "Unable to open device $opt_device: $!\n";
   exit 1;
@@ -119,12 +121,6 @@ sub new {
   if ($flags{debug}) {
     $self->{debug} = 1;
   }
- 
-  # Construct lockfile name.
-  $self->{lockfile} = $device;
-  $self->{lockfile} =~ s/\/dev\///;
-  $self->{lockfile} =~ s/\//_/g;
-  $self->{lockfile} = "/var/lock/LCK..".$self->{lockfile};
 
   $self->{baudrates} = {
     0 => 300,
@@ -140,7 +136,17 @@ sub new {
   
   # When using the lockfile, Device::SerialPort has a very annoying
   # two second delay...
-  $self->{port} = Device::SerialPort->new($self->{device}, 0, $self->{lockfile});
+  if ($flags{nolock}) {
+    $self->{port} = Device::SerialPort->new($self->{device}, 0);
+  } else {
+    # Construct lockfile name.
+    my $lockfile = $device;
+    $lockfile =~ s/\/dev\///;
+    $lockfile =~ s/\//_/g;
+    $lockfile = "/var/lock/LCK..".$lockfile;
+  
+    $self->{port} = Device::SerialPort->new($self->{device}, 0, $lockfile);
+  }
   if (!$self->{port}) {
     return undef;
   }
@@ -407,6 +413,11 @@ stopped using CTRL-C.
 
 Time to wait between two readouts (when running in continuous reading
 mode).
+
+=item B<-n|--no-lock>
+
+Don't check for lock files (potentially dangerous). This will speed up
+the program by two seconds.
 
 =back
 
