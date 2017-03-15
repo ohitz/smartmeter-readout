@@ -75,7 +75,13 @@ do {
 
   if (@opt_register) {
     foreach my $rspec (@opt_register) {
-      if ($rspec =~ /([^\/]*)\/([^\/]*)\/(.*)/) {
+      if ($rspec =~ /([^\/]*)\/([^\/]*)\/(.*)\/(.*)/) {
+        my $reg = $1;
+        my $label = $2;
+        my $factor = $3;
+        my $format = $4;
+        printf $output_handle "%s=$format\n", $label, $factor * $d->{data}->{$reg};
+      } elsif ($rspec =~ /([^\/]*)\/([^\/]*)\/(.*)/) {
         my $reg = $1;
         my $label = $2;
         my $factor = $3;
@@ -412,7 +418,7 @@ Show the help message.
 
 Print debugging output.
 
-=item B<-r|--register REGISTER[/LABEL[/FACTOR]]>
+=item B<-r|--register REGISTER[/LABEL[/FACTOR/FORMAT]]>
 
 By default, all registers read from the smart meter are shown. When
 this option is used, only the specified registers are shown.
@@ -421,6 +427,8 @@ When B<LABEL> is specified, an optional label is printed along with
 the value.
 
 B<FACTOR> specifies an optional multiplication factor.
+
+B<FORMAT> specifies a sprintf-style format (default: %f)
 
 The option may be specified multiple times.
 
