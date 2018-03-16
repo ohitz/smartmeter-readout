@@ -245,9 +245,7 @@ sub get_telegram()
 
   $self->debug("Reading identification\n");
   ($status, $data->{raw_identification}) = $self->recv(qr/\r\n$/);
-  if ($status) {
-    last;
-  } else {
+  if (!$status) {
     $self->{error} = "Timeout while reading identification.";
     return undef;
   }
