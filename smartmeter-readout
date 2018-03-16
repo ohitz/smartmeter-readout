@@ -65,11 +65,8 @@ do {
   my $try = 0;
   do {
     $d = $meter->get_telegram();
-    if ($d) {
-      last;
-    }
     $try++;
-  } while ($try < $opt_retries);
+  } while (!$d && $try <= $opt_retries);
 
   if (!$d) {
     printf STDERR "Unable to get values, %s.\n", $meter->{error};
