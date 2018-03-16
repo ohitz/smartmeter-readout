@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# Copyright (C) 2017 Oliver Hitz <oliver@net-track.ch>
+# Copyright (C) 2017-2018 Oliver Hitz <oliver@net-track.ch>
 
 use Pod::Usage;
 use Getopt::Long;
@@ -15,6 +15,7 @@ my @opt_register;
 my $opt_debug = 0;
 my $opt_nolock;
 my $opt_continuous = 0;
+my $opt_retries = 5;
 my $opt_wait = 5;
 my $opt_callback;
 my $opt_help;
@@ -25,6 +26,7 @@ if (!GetOptions( "h|help" => \$opt_help,
                  "r|register=s" => \@opt_register,
                  "c|continuous" => \$opt_continuous,
                  "w|wait=i" => \$opt_wait,
+		 "retries=i" => \$opt_retries,
 		 "callback=s" => \$opt_callback)) {
   usage();
 }
@@ -59,7 +61,16 @@ if (!$meter) {
 do {
   my $start = time();
 
-  my $d = $meter->get_telegram();
+  my $d;
+  my $try = 0;
+  do {
+    $d = $meter->get_telegram();
+    if ($d) {
+      last;
+    }
+    $try++;
+  } while ($try < $opt_retries);
+
   if (!$d) {
     printf STDERR "Unable to get values, %s.\n", $meter->{error};
     exit 1;
@@ -229,23 +240,16 @@ sub get_telegram()
 
   my $status;
   
-  my $retry = 3;
-  while ($retry > 0) {
-    $self->debug("Sending sign-on\n");
-    $self->send("/?!\r\n");
+  $self->debug("Sending sign-on\n");
+  $self->send("/?!\r\n");
 
-    $self->debug("Reading identification\n");
-    ($status, $data->{raw_identification}) = $self->recv(qr/\r\n$/);
-    if ($status) {
-      last;
-    } else {
-      if ($retry == 0) {
-        $self->{error} = "Timeout while reading identification.";
-        return undef;
-      }
-      print "Retrying...\n";
-      $retry--;
-    }
+  $self->debug("Reading identification\n");
+  ($status, $data->{raw_identification}) = $self->recv(qr/\r\n$/);
+  if ($status) {
+    last;
+  } else {
+    $self->{error} = "Timeout while reading identification.";
+    return undef;
   }
     
   $self->debug("Identification received: `%s'\n", $self->cs($data->{raw_identification}));
@@ -454,6 +458,11 @@ the output is piped into that program. If the program's exit status is
 different from 0, B<smartmeter-readout> quits with the same status
 (especially relevant when running in continuous mode).
 
+=item B<--retries RETRIES>
+
+How many times to retry getting a telegram. If no telegram could be read, the
+program quits with status 1. Defaults to 5 retries.
+
 =back
 
 B<smartmeter-readout> was reported to work with the following meters:
@@ -506,7 +515,7 @@ Registers returned on an Iskraemeco MT174 smart meter:
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2017 Oliver Hitz
+Copyright (C) 2017-2018 Oliver Hitz
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

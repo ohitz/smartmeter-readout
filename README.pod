@@ -59,6 +59,11 @@ the output is piped into that program. If the program's exit status is
 different from 0, B<smartmeter-readout> quits with the same status
 (especially relevant when running in continuous mode).
 
+=item B<--retries RETRIES>
+
+How many times to retry getting a telegram. If no telegram could be read, the
+program quits with status 1. Defaults to 5 retries.
+
 =back
 
 B<smartmeter-readout> was reported to work with the following meters:
@@ -111,7 +116,7 @@ Registers returned on an Iskraemeco MT174 smart meter:
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2017 Oliver Hitz
+Copyright (C) 2017-2018 Oliver Hitz
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
